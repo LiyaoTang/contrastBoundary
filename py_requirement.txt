@@ -1,0 +1,15 @@
+# gcc_linux-64==7.5  # may need to ln -s in virtualenv/conda
+# gxx_linux-64==7.5
+# gast==0.2.2  # avoid batch-norm warning if any
+numpy==1.21.5
+six
+wheel
+pip
+tqdm
+pandas
+psutil
+pyyaml
+matplotlib
+scipy
+scikit-learn
+cython

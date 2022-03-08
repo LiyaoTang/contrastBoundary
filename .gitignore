@@ -1,0 +1,24 @@
+# settings & caches
+.vscode
+.idea
+**/*.pyc
+**/__pycache__
+
+ops/tf_custom_ops/**/build
+ops/tf_custom_ops/**/*.so
+ops/tf_custom_ops/**/*.pyd
+ops/tf_custom_ops/**/*.egg*
+ops/cpp_wrappers/**/build
+ops/cpp_wrappers/**/*.so
+ops/nearest_neighbors/knn.cpp
+ops/nearest_neighbors/build
+ops/nearest_neighbors/lib
+ops/sampling/**/*.so
+ops/sampling/**/*.o
+
+# symilinks
+Data
+
+# heavy stuff
+results/
+**/events.out.tfevents*
