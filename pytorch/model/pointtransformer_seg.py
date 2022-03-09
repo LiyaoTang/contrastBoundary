@@ -62,13 +62,6 @@ class PointTransformerSeg(nn.Module):
         config.num_layers = 5
         config.num_classes = k
 
-        self.blocks_mid = nn.ModuleList([])
-        if 'blocks_mid' in config:
-            for blk in config.blocks_mid:  # list of dict - [{name:, ...}, ...]
-                blk_name = blk.name
-                blk_cfg = {k: v for k, v in blk.items() if k != 'name'}
-                self.blocks_mid.append(globals()[blk_name]('down', 4, blk_cfg, config))
-
         if 'multi' in config:
             self.head = MultiHead(planes, config.multi, config)
         else:
@@ -124,13 +117,6 @@ class PointTransformerSeg(nn.Module):
         # for i, s in enumerate(down_list):
         #     print('\n\t'.join([str(i)] + [str(ss.shape) for ss in s]))
         stage_list['down'] = down_list
-
-        if self.blocks_mid:
-            # consider moving after point-net ops?
-            pxo = p5, x5, o5
-            for blk in self.blocks_mid:
-                pxo = blk(pxo, 'down', 4, stage_list, inputs)
-            p5, x5, o5 = pxo
 
         x5 = self.dec5[1:]([p5, self.dec5[0]([p5, x5, o5]), o5])[1]  # no upsample - concat with per-cloud mean: mlp[ x, mlp[mean(x)] ]
         x4 = self.dec4[1:]([p4, self.dec4[0]([p4, x4, o4], [p5, x5, o5]), o4])[1]

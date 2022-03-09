@@ -57,11 +57,6 @@ class mlp(Head):
     # cross-entropy loss, by default, on the last (most upsampled) layer
     _attr_dict = {'_ops': [
         '1-xen',   # xen - per-pixel softmax with cross entropy,
-        '1-none',  # others - e.g. binary mask + per-mask classification => more masks to focus on diff shape of same classes?
-        '1-xen-class',
-        '1-xen-center',
-        '1-xen-w.5',
-        '1-xen-dp.5',
     ]}
     act = 'relu'
     task = 'seg'
@@ -90,7 +85,6 @@ class multiscale(Head):
     _attr_dict = {'_ops': [
         '||Ua-concat-fout',  # collect all - main only
         '||Ua-concat-latent',
-        '||Ua-concatmlp-latent',
         '||Ua-concat-latent|w0',  # zero-out loss & grad
 
     ]}
@@ -101,16 +95,8 @@ class multiscale(Head):
     @property  # per-branch ops: latent -> logits -> pred -> loss
     def branch(self): return self._ops.split('|')[0]
     @property
-    # # branch ops conditioning - fuse in condition:
-    #   sum, concat
-    #   weight: learnable scalar weight
-    #   weights: learnable vector weights (one per channel)
-    #   gate: weighty dynamically predict by previous branch ops, e.g. weight of gate-logits predictied by latent
     def condition(self): return self._ops.split('|')[1]
     @property
-    # generate the main loss & pred:
-    #   either separate ops: combine selected branch ops
-    #   or, select a branch: extending existing branch ops to loss
     def main(self): return self._ops.split('|')[2]
 
     @property
@@ -138,11 +124,6 @@ class contrast(Head):  # contrast/metric learning
     @property
     def ftype(self):
         return self._ops.split('|')[1]
-        # ftype = self._ops.split('|')[1].split('-')
-        # for ii, i in enumerate(ftype):
-        #     if i.lower().startswith('p'):
-        #         ii -= 1; break
-        # return '-'.join(ftype[:ii+1])
     @property
     def project(self):
         proj = self._ops.split('|')[1][len(self.ftype):]

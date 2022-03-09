@@ -145,16 +145,14 @@ class Origin(Default):
     def name(self):
         return '_'.join([self.idx_name_pre, *[i for i in self._ops.split('|') if i]])
 
-class Origin_relu(Origin):
+class Conv(Origin):
     # try some high train score & low val score with relu (instead of leaky_relu)
     _attr_dict = {'_ops': [
-        # 'adapt|',        '|edge-Eund-bound-U0-out-w.1-edge-sub-2mlp',
-        '|multi-Ua-concat-latent',
         '|multi-Ua-concat-latent|contrast-Ua-softnn-latent-label-l2-w.1',  # good
         # temperature
-        '|multi-Ua-concat-latent|contrast-Ua-softnn-latent-label-l2-mT.3-w.1',  # harder
+        '|multi-Ua-concat-latent|contrast-Ua-softnn-latent-label-l2-mT.3-w.1',
         '|multi-Ua-concat-latent|contrast-Ua-softnn-latent-label-l2-mT.5-w.1',
-        '|multi-Ua-concat-latent|contrast-Ua-softnn-latent-label-l2-mT2-w.1',  # softer
+        '|multi-Ua-concat-latent|contrast-Ua-softnn-latent-label-l2-mT2-w.1',
         '|multi-Ua-concat-latent|contrast-Ua-softnn-latent-label-l2-mT3-w.1',
         '|multi-Ua-concat-latent|contrast-Ua-softnn-latent-label-l2-mT5-w.1',
         # kl
@@ -162,10 +160,10 @@ class Origin_relu(Origin):
         '|multi-Ua-concat-latent|contrast-Ua-softnn-latent-labelkl.5-l2-mT.5-w.1',
     ]}
     activation = 'relu'
-    idx_name_pre = 'originR'
+    idx_name_pre = 'conv'
 
     def __init__(self, cfg=None, parse=True):
-        super(Origin_relu, self).__init__(cfg, parse)
+        super(Conv, self).__init__(cfg, parse)
 
     @property
     def update_path(self): m = self._main if self._main else 'adapt'; return self._update_dict[m]
@@ -176,25 +174,16 @@ class Origin_relu(Origin):
         m = self._ops.split('|')[0][len(self._main):] if self._main == 'adapt' else '_' + self._ops.split('|')[0]
         return '_'.join([i for i in [(name_pre + m).strip('_')] + self._ops.split('|')[1:] if i])
 
-class pospool(Origin_relu):
+class pospool(Conv):
     _attr_dict = {'_ops': [
         # pospool
         'pospool|multi-Ua-concat-latent|contrast-Ua-softnn-latent-label-l2-w.1',
-        'pospool|multi-Ua-concat-latent|contrast-Ua-softnn-latent-label-l2-mT.5-w.1',
     ]}
     idx_name_pre = 'pospool'
     _name_pre = Origin_relu.idx_name_pre
 
-class Origin_lrelu(Origin):
-    _attr_dict = {'_ops': [
-        '|multi-Ua-concat-latent|contrast-Ua-softnn-latent-label-l2-w.1',
-    ]}
-    activation = 'leaky_relu'
-    idx_name_pre = 'originA'
-    update_path = 'config/s3dis/adaptiveweight_dp_fc1_mean.yaml'
-
 origin_dict = {}
-gen_config([Origin, Origin_lrelu, pospool], store_dict=origin_dict)
+gen_config([Conv, pospool], store_dict=origin_dict)
 for k, v in origin_dict.items():
     if v.update_path:
         v.update(v.update_path)

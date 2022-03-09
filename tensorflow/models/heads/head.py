@@ -186,24 +186,13 @@ def calc_dist(f_from, f_to, dist, align=True, keepdims=True):
         # dist = tf.where(tf.greater(dist, 0.0), tf.sqrt(dist), dist)
     elif dist in ['l2square']:
         dist = tf.reduce_sum((f_from - f_to)**2, axis=-1, keepdims=keepdims)
-    elif dist in ['l1', 'norml1']:
-        dist = tf.reduce_sum(tf.abs(f_from - f_to), axis=-1, keepdims=keepdims)
-    elif dist in ['dot', 'normdot']:  # normdot = raw cos
-        dist = tf.reduce_sum(f_from * f_to, axis=-1, keepdims=keepdims)
-        dist = -dist if align else dist  # revert to (-inf i.e. small <- similar, dissim -> inf i.e. large)
-    elif dist == 'cos':
-        dist = tf.reduce_sum(f_from * f_to, axis=-1, keepdims=keepdims)
-        # NOTE: matmul seems incorrectly used - training diverge
-        # dist = tf.matmul(f_to, f_from, transpose_b=True)  # [k, 1] = [k, d] @ [1, d]^T - similar = smaller
-        dist = -dist if align else dist  # revert to (-1 <- similar, dis-similar -> 1)
-        dist = (1 + dist) / 2  # rescale to (0, 1)
     elif dist == 'kl':
         # f_from/to need to be a distribution - (0 <- sim, dis -> inf)
         dist = tf.reduce_sum(tf.math.xlogy(f_from, f_from / tf.maximum(f_to, _eps)), axis=-1, keepdims=keepdims)
     else:
         raise NotImplementedError(f'not supported dist = {dist}')
     return dist  # [BxN, k, 1] / [BxN, 1]
-calc_dist.valid = ['cos', 'l2', 'norml2', 'l1', 'norml1', 'dot', 'normdot', 'l2square', 'kl']
+calc_dist.valid = ['l2', 'norml2', 'l2square', 'kl']
 
 def calc_loss(loss, labels, logits, config, num_classes=None, mask=None, name=None, reduce_loss=True, raise_not_support=True):
     name = name if name else 'cross_entropy'
@@ -245,7 +234,6 @@ def calc_loss(loss, labels, logits, config, num_classes=None, mask=None, name=No
 
 
 class mlp_head(object):
-    valid_weight = ['center', 'class', 'batch']  # valid spcial weight (str)
 
     def __call__(self, inputs, head_cfg, config, is_training):
         # assert head_cfg.ftype == None and head_cfg.stage == None
@@ -319,23 +307,6 @@ class mlp_head(object):
 
         # collect mask
         mask = tf.greater_equal(labels, 0) if len(config.ignored_labels) > 0 else None
-        if isinstance(head_cfg.weight, str) and 'center' in head_cfg.weight:  # retain sample center only
-            raise NotImplementedError(f'not compatible with refine')
-            pts = inputs['stage_list']['up']['p_out']
-            dist = tf.reduce_sum(pts ** 2, axis=-1)  # [BxN] - squared l2 dist
-            if 'in_batches' in inputs:
-                dist, valid_mask = tf_gather(dist, inputs['in_batches'], shadow_fn=-1, get_mask=True)  # [B, N]
-            thr = float(re.search('center\.\d+', head_cfg.weight).group(0)) * tf.reduce_max(dist, axis=-2, keepdims=True)  # [B, 1]
-            thr_mask = tf.less(dist, thr ** 2)
-            if 'in_batches' in inputs:
-                thr_mask = tf.boolean_mask(thr_mask, valid_mask)  # [BxN]
-            # update - crop
-            mask = tf.logical_and(mask, thr_mask) if mask is not None else thr_mask
-            full_logits = tf.boolean_mask(full_logits, thr_mask, names='center_logits')
-            full_labels = tf.boolean_mask(full_labels, thr_mask, names='center_labels')
-            if stage_n == 'up' and stage_i == 0:
-                inputs['point_inds'] = tf.boolean_mask(inputs['point_inds'], thr_mask)
-                inputs['stage_list']['up'][0]['p_out'] = tf.boolean_mask(pts, thr_mask)
 
         # match valid labels
         labels = tf.boolean_mask(labels, mask) if mask is not None else labels
@@ -353,11 +324,6 @@ class mlp_head(object):
             weight = head_cfg.weight
         elif 'class' in head_cfg.weight:  # class weighting
             weight = get_class_weight(config.dataset, labels)
-        elif 'batch' in head_cfg.weight:  # batch-size weighting => mean inside cloud, then over batches
-            weight = inputs['batch_weights']
-            weight = tf.boolean_mask(weight, mask) if mask is not None else weight
-        elif 'center' in head_cfg.weight:
-            pass
         elif head_cfg.weight.startswith('w'):
             weight = float(head_cfg.weight[1:])
         elif head_cfg.weight:
@@ -545,15 +511,9 @@ class contrast_head(object):
 
             labels = tf.expand_dims(labels, axis=-2)
             if criterion.startswith('kl'):  # xlogy=0 if y=0, but need to have large value if labels=1 and neighbor_label=0
-                if criterion.startswith('klR'):
-                    dist = calc_dist(neighbor_label, labels, dist='kl', keepdims=False)
-                else:
-                    dist = calc_dist(labels, neighbor_label, dist='kl', keepdims=False)
+                dist = calc_dist(labels, neighbor_label, dist='kl', keepdims=False)
                 criterion = re.search('\.{0,1}\d+', criterion)
                 criterion = float(criterion.group()) if criterion else None
-            elif criterion.startswith('abs'):
-                dist = tf.reduce_sum(tf.abs(labels - neighbor_label), axis=-1)
-                criterion = float(criterion[3:])
             else:
                 raise NotImplementedError(f'not supported criterion = {criterion}')
             posneg = tf.less(dist, criterion) if criterion is not None else dist
@@ -604,7 +564,6 @@ class contrast_head(object):
         sample_idx = []
         sample_mask = []  # pos=True, neg=False
         valid_mask = None
-        anchor_mask = None  # mask on sample_mask, to select anchor point
         if 'label' in sample and (config.search == 'radius' or config.ignored_labels):
             valid_mask = []  # need to collect valid_mask
         for s in sample.split('-'):
@@ -619,33 +578,26 @@ class contrast_head(object):
 
             elif s.startswith('rand'):  # rand sampling as neg
                 n_neg = int(re.search('\d+', s).group(0))
-                if 'G' in s:  # cross-sample sampling (global)
-                    BN = tf.shape(neighbor_idx)
-                    if 'batches_len' in inputs:
-                        rand_idx = tf.random.uniform(shape=[BN[0], n_neg], minval=0, maxval=BN[0], dtype=neighbor_idx.dtype)
-                    else:
-                        rand_idx = tf.random.uniform(shape=[BN[0], BN[1], n_neg], minval=0, maxval=BN[0] * BN[1], dtype=neighbor_idx.dtype)  # [B, N] - indexing into BxN
-                        raise
-                else:  # per-sample sampling
-                    if 'batches_len' in inputs:
-                        BN = inputs['batches_len'][stage_i]  # B - [B] indicating point num in each example
-                        rand_idx_0 = tf.zeros([0, n_neg], dtype=neighbor_idx.dtype)
-                        B = tf.shape(BN)[0]
+                # per-sample sampling
+                if 'batches_len' in inputs:
+                    BN = inputs['batches_len'][stage_i]  # B - [B] indicating point num in each example
+                    rand_idx_0 = tf.zeros([0, n_neg], dtype=neighbor_idx.dtype)
+                    B = tf.shape(BN)[0]
 
-                        def body(batch_i, rand_idx):
-                            N = BN[batch_i]
-                            cur_idx = tf.random.uniform(shape=[N, n_neg], minval=0, maxval=N, dtype=neighbor_idx.dtype)
-                            rand_idx = tf.concat([rand_idx, cur_idx + tf.reduce_sum(BN[:batch_i])], axis=0)
-                            batch_i += 1
-                            return batch_i, rand_idx
+                    def body(batch_i, rand_idx):
+                        N = BN[batch_i]
+                        cur_idx = tf.random.uniform(shape=[N, n_neg], minval=0, maxval=N, dtype=neighbor_idx.dtype)
+                        rand_idx = tf.concat([rand_idx, cur_idx + tf.reduce_sum(BN[:batch_i])], axis=0)
+                        batch_i += 1
+                        return batch_i, rand_idx
 
-                        def cond(batch_i, rand_idx): return tf.less(batch_i, B)
+                    def cond(batch_i, rand_idx): return tf.less(batch_i, B)
 
-                        _, rand_idx = tf.while_loop(cond=cond, body=body, loop_vars=[0, rand_idx_0],
-                                                    shape_invariants=[tf.TensorShape([]), tf.TensorShape([None, n_neg])], name='rand')
-                    else:
-                        BN = tf.shape(neighbor_idx)  # [B, N, n]
-                        rand_idx = tf.random.uniform(shape=[BN[0], BN[1], n_neg], minval=0, maxval=BN[1], dtype=neighbor_idx.dtype)
+                    _, rand_idx = tf.while_loop(cond=cond, body=body, loop_vars=[0, rand_idx_0],
+                                                shape_invariants=[tf.TensorShape([]), tf.TensorShape([None, n_neg])], name='rand')
+                else:
+                    BN = tf.shape(neighbor_idx)  # [B, N, n]
+                    rand_idx = tf.random.uniform(shape=[BN[0], BN[1], n_neg], minval=0, maxval=BN[1], dtype=neighbor_idx.dtype)
                 sample_idx += [rand_idx]  # [BxN, n]
 
             else:
@@ -663,12 +615,6 @@ class contrast_head(object):
             elif s.startswith('rand'):
                 sample_mask += [tf.zeros(shape=tf.shape(cur_idx), dtype=tf.bool)]
 
-            # anchor_mask - anchor selection from sample_mask
-            if 'M' in s:  # if masked by existing mask (i.e. label) - exclude from anchor selection
-                assert len(sample_mask) > 1
-                anchor_mask = [] if anchor_mask is None else anchor_mask
-                anchor_mask += [len(sample_mask) - 1]  # exclude current sample in selecting anchor
-
             # valid_mask - only valid points for contrast
             if 'label' in s and mask is not None:
                 valid_mask += [mask]
@@ -681,42 +627,26 @@ class contrast_head(object):
                 valid_mask += [tf.ones(shape=tf.shape(cur_idx), dtype=tf.bool)]
 
 
-        if anchor_mask is not None:
-            anchor_mask = [(tf.zeros if i in anchor_mask else tf.ones)(shape=tf.shape(m)[-1], dtype=tf.bool) for i, m in enumerate(sample_mask)]
-            anchor_mask = tf.squeeze(tf.where(tf.concat(anchor_mask, axis=0)), axis=-1)  # per-point col idx on sample mask for anchor selection
         if valid_mask is not None:
             valid_mask = tf.concat(valid_mask, axis=-1) if len(valid_mask) > 1 else valid_mask[0]
 
         sample_idx = tf.concat(sample_idx, axis=-1) if len(sample_idx) > 1 else sample_idx[0]
         sample_mask = tf.concat(sample_mask, axis=-1) if len(sample_mask) > 1 else sample_mask[0]
 
-        _glb[key] = (sample_idx, sample_mask, anchor_mask, valid_mask)
-        return sample_idx, sample_mask, anchor_mask, valid_mask
+        _glb[key] = (sample_idx, sample_mask, valid_mask)
+        return sample_idx, sample_mask, valid_mask
 
     @staticmethod
     @tf_scope
-    def solve_samples_mask(contrast, sample_mask, anchor_mask, valid_mask, config):
+    def solve_samples_mask(contrast, sample_mask, valid_mask, config):
         # get pos-neg mask & point mask - points with desired pos/neg pairs
         pos_mask = neg_mask = pos_point = neg_point = None
-        if contrast in ['triplet', 'softnn', 'simdiff', 'nce', 'bce', 'sim']:
-            pos_mask = tf.logical_and(sample_mask, valid_mask) if valid_mask is not None else sample_mask  # [BxN, k] - valid eq in samples/neighbors
-            pos_point = tf.gather(pos_mask, anchor_mask, axis=-1) if anchor_mask is not None else pos_mask
-            pos_point = tf.reduce_any(pos_point, axis=-1, keepdims=True)  # [BxN, 1]
-        if contrast in ['triplet', 'softnn', 'simdiff', 'nce', 'bce', 'diff']:
-            neg_mask = tf.logical_and(tf.logical_not(sample_mask), valid_mask) if valid_mask is not None else tf.logical_not(sample_mask)  # valid neq
-            neg_point = tf.gather(neg_mask, anchor_mask, axis=-1) if anchor_mask is not None else neg_mask
-            neg_point = tf.reduce_any(neg_point, axis=-1, keepdims=True)
-        if contrast in ['simplain']:
-            pos_mask = tf.logical_or(sample_mask, tf.logical_not(valid_mask)) if valid_mask is not None else sample_mask  # [BxN, k] - valid -> eq
-            pos_point = tf.gather(pos_mask, anchor_mask, axis=-1) if anchor_mask is not None else pos_mask
-            pos_point = tf.logical_and(tf.reduce_all(pos_point, axis=-1, keepdims=True), tf.reduce_any(valid_mask, axis=-1, keepdims=True))  # [BxN, 1]
-        if contrast in ['kl', 'ncekl', 'normkl', 'sigkl', 'msekl']:  # sample_mask - float
-            pos_mask = sample_mask  # label kl dist
-            neg_mask = tf.cast(tf.logical_not(valid_mask), pos_mask.dtype) if valid_mask is not None else None  # per-position IN-valid mask
-            if contrast in ['sigkl', 'msekl']:
-                pos_point = tf.reduce_any(valid_mask, axis=-1, keepdims=True)  # as regression
-            else:
-                pos_point = tf.cast(valid_mask, tf.float32, axis=-1, keepdims=True) > 1  # need >1 for normalization
+
+        pos_mask = tf.logical_and(sample_mask, valid_mask) if valid_mask is not None else sample_mask  # [BxN, k] - valid eq in samples/neighbors
+        pos_point = tf.reduce_any(pos_point, axis=-1, keepdims=True)  # [BxN, 1]
+
+        neg_mask = tf.logical_and(tf.logical_not(sample_mask), valid_mask) if valid_mask is not None else tf.logical_not(sample_mask)  # valid neq
+        neg_point = tf.reduce_any(neg_point, axis=-1, keepdims=True)
 
         point_mask = [m for m in [pos_point, neg_point] if m is not None]
         if len(point_mask) == 1:
@@ -729,17 +659,14 @@ class contrast_head(object):
         if config.debug:
             print('pos/neg mask = ', pos_mask, neg_mask)
             print('point_mask = ', point_mask)
-            # if anchor_mask is not None:
-            #     point_mask = tf_Print(point_mask, [' anchor mask ', anchor_mask, ' sample_mask shape ', tf.shape(sample_mask)])
-            #     point_mask = tf_Print(point_mask, [' select ', tf.reduce_sum(tf.cast(point_mask, tf.int32), axis=-1), 'from features ', tf.shape(features)])
         return pos_mask, neg_mask, point_mask
 
     @staticmethod
     @tf_scope
     def contrast(features, samples, contrast, inputs, head_cfg, config):
 
-        sample_idx, sample_mask, anchor_mask, valid_mask, stage_n, stage_i = samples
-        pos_mask, neg_mask, point_mask = contrast_head.solve_samples_mask(contrast, sample_mask, anchor_mask, valid_mask, config)
+        sample_idx, sample_mask, valid_mask, stage_n, stage_i = samples
+        pos_mask, neg_mask, point_mask = contrast_head.solve_samples_mask(contrast, sample_mask, valid_mask, config)
 
         def false_fn():
             if contrast in ['sim', 'diff', 'simdiff', 'simplain'] or len(head_cfg.dist.split('-')) == 1:
@@ -772,9 +699,9 @@ class contrast_head(object):
     @tf_scope
     def calc_dist_from_sample(features, sample_idx, pos_mask, neg_mask, point_mask, head_cfg, config):
 
-        key_dist = ['cos', 'l2', 'norml2', 'l1', 'norml1', 'dot', 'normdot', 'l2square']
+        key_dist = ['l2', 'norml2', 'l2square']
         def calc_dist_sample(features, dist, sample_features=None):
-            if 'norm' in dist or dist in ['cos']:
+            if 'norm' in dist:
                 features = tf.nn.l2_normalize(features, axis=-1, epsilon=_eps)
                 if isinstance(sample_features, list) :  # list of [BxN, d] - reduced features
                     sample_features = [tf.nn.l2_normalize(f, axis=-1, epsilon=_eps) for f in sample_features if f is not None]
@@ -790,50 +717,14 @@ class contrast_head(object):
                 features = tf.boolean_mask(features, point_mask, name='mask_f')  # calc only the valid row
                 dist = [calc_dist(features, tf.boolean_mask(f, point_mask, name='mask_sample'), dist) for f in sample_features]
             # remove invalid row in mask
-            nonlocal pos_mask, neg_mask  # bind to the enclosing scope
+            nonlocal pos_mask, neg_mask
             pos_mask = tf.boolean_mask(pos_mask, point_mask, name='mask_pos') if pos_mask is not None else None
             neg_mask = tf.boolean_mask(neg_mask, point_mask, name='mask_neg') if neg_mask is not None else None
             return dist  # [BxN, k, 1] / [[BxN, 1], ...]
 
-        key_reduction = ['minmax', 'mean']
-        def calc_reduction(features, reduction):
-            # [BxN, k, d/1] - reduce features [BxN, d] / dist [BxN, k, 1]
-            sample_features = tf_gather(features, sample_idx, get_mask=False) if len(features.shape) <= len(sample_idx.shape) else features
-
-            pos_msk = tf.cast(tf.expand_dims(pos_mask, axis=-1), tf.float32) if pos_mask is not None else None  # [BxN, k, 1]
-            neg_msk = tf.cast(tf.expand_dims(neg_mask, axis=-1), tf.float32) if neg_mask is not None else None
-
-            pos = neg = None
-            if reduction == 'minmax':  # max pos & min neg - hardest pair
-                assert int(features.shape[-1]) == 1, f'min-max should be applied on distance, not features'
-                if pos_msk is not None:
-                    pos = tf.reduce_max(sample_features * pos_msk + (tf.reduce_min(sample_features, axis=-2, keepdims=True) * (1 - pos_msk)), axis=-2)
-                if neg_msk is not None:
-                    neg = tf.reduce_min(sample_features * neg_msk + (tf.reduce_max(sample_features, axis=-2, keepdims=True) * (1 - neg_msk)), axis=-2)
-            elif reduction == 'mean':
-                pos = tf.reduce_sum(sample_features * pos_msk, axis=-2) / tf.reduce_sum(pos_msk, axis=-2) if pos_msk is not None else None
-                neg = tf.reduce_sum(sample_features * neg_msk, axis=-2) / tf.reduce_sum(neg_msk, axis=-2) if neg_msk is not None else None
-            else:
-                raise NotImplementedError(f'not supported reduction = {reduction}')
-            return [pos, neg]  # [BxN, 1/d]
-
-        # calc dist - dist & reduce
-        #   dist -> reduce: [BxN, d] -> [BxN, k, 1] -> [BxN, 1]...
-        #   reduce -> dist: [BxN, d] -> [BxN, d]... -> [BxN, 1]...
-        #   dist: [BxN, d] -> [BxN, k, 1]
-        sample_features = None
-        for ops in head_cfg.dist.split('-'):
-            if ops in key_dist:
-                # calculate distance: [BxN, d] -> [BxN, k, 1], or, list of [BxN, d] -> list of [BxN, 1]
-                dist = calc_dist_sample(features, ops, sample_features=sample_features)
-                features = dist
-            elif ops in key_reduction:
-                # reduce by mask: [BxN, k, 1/d] -> list of [BxN, 1/d]...
-                dist = sample_features = calc_reduction(features, ops)
-            else:
-                raise NotImplementedError(f'not supported ops = {ops} in head_cfg.dist = {head_cfg.dist}')
-        # [BxN, k] / [pos=[BxN], neg]
-        dist = [tf.squeeze(d, axis=-1) for d in dist] if isinstance(dist, list) else tf.squeeze(dist, axis=-1)
+        # calculate distance
+        dist = calc_dist_sample(features, head_cfg.dist, sample_features=None)
+        dist = tf.squeeze(dist, axis=-1)
         return dist, pos_mask, neg_mask
 
     @staticmethod
@@ -843,10 +734,6 @@ class contrast_head(object):
 
         # solve margin - mask - other shared aug
         margin = head_cfg.margin if head_cfg.margin else None  # e.g. m.1, m.1d, mI
-        if margin and margin[-1] == 'd':
-            margin = tf.reduce_mean(dist) * float(margin[:-1])
-        elif margin and not re.fullmatch('[IELSP]*(T([pvl]|)\.{0,1}\d*|)', margin):
-            margin = float(margin)
         masking = head_cfg.mask if head_cfg.mask else None  # e.g. m.1-mask, mask.1, mI-mask
         if masking and not masking[4:] and margin is not None:  # tf/str
             masking = margin
@@ -859,17 +746,7 @@ class contrast_head(object):
         temperature = None
         if margin is not None and 'T' in margin:  # temperature
             temperature = margin[margin.index('T') + 1:]
-            if temperature == 'v':
-                temperature = tf_get_variable('temprature', [], initializer='ones')
-                # temperature = tf_get_variable('temperature', [], initializer='ones')
-            elif temperature.startswith('p'):
-                f = tf.boolean_mask(features, point_mask)
-                f = tf.nn.sigmoid(dense_layer(f, 1, f'linear', None, True, False, initializer='fanin'))
-                temperature = f if not temperature[1:] else f * float(temperature[1:])
-            elif temperature.startswith('l'):
-                temperature = float(temperature[1:] if temperature[1:] else 1) * (stage[1] + 1)
-            else:
-                temperature =  float(temperature)
+            temperature =  float(temperature)
 
         def apply_masking(dist, valid_mask):
             dist = tf.cond(tf.reduce_any(valid_mask), 
@@ -897,14 +774,8 @@ class contrast_head(object):
 
             # maximize pos <=> minimize neg
             # NOTE - pos/neg = exp[-dist]
-            if margin is not None and 'I' in margin:  # inverse
-                dist = tf.boolean_mask(dist, tf.greater(dist, 0.0)) if masking else dist + _eps  # avoid inf
-                dist = 1 / dist
-            elif margin is not None and 'P' in margin:  # as probability
-                dist = 1 - dist
-            else:
-                dist = tf.boolean_mask(dist, tf.greater(dist, 0.0)) if masking else dist + _eps
-                dist = -tf.log(dist)
+            dist = tf.boolean_mask(dist, tf.greater(dist, 0.0)) if masking else dist + _eps
+            dist = -tf.log(dist)
 
         elif contrast == 'nce':
             if isinstance(dist, list):
@@ -952,7 +823,6 @@ class contrast_head(object):
             wfloat = weight
         loss = tf.reduce_mean(loss) * wfloat
         return loss
-
 
 
 def get_head_ops(head_n, raise_not_found=True):

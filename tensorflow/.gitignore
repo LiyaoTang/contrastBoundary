@@ -1,6 +1,4 @@
 # settings & caches
-.vscode
-.idea
 **/*.pyc
 **/__pycache__
 

@@ -81,47 +81,6 @@ def sparse_masked_softmax(logits, mask):
     return result
 
 
-def gumbel_softmax(logits, temperature=1e-3, hard=False):
-    """differential categorical sampling at inference
-    tfp.distributions.RelaxedOneHotCategorical
-    (https://www.tensorflow.org/probability/api_docs/python/tfp/distributions/RelaxedOneHotCategorical)
-
-    =>  reparameterization trick:
-        random var Z following Gaussian N[u(x), v(x)], which could be refactorized into u(x) + v(x) * N[0,1]
-        =>  sampling Z could be done as u(x) + v(x) * z, where z sampled from N[0,1]
-            gradient back-prop to u(x), v(x)
-        i.e. refactor into deterministic function of the parameters (x) and independent random var (z) of fixed distribution.
-
-    =>  gumbel softmax as the reparameterization of sampling from a discrete distribution (https://anotherdatum.com/gumbel-gan.html)
-        Gumbel(0,1) dist. PDF f(x) = exp[−(x+exp[−x])], CDF F(x) = exp[-exp[-x]]
-        =>  given learned discret distribution [a_1, ..., a_k], with a_[0-k] dynamically predicted,
-            i.i.d. sample [z_1, ..., z_k] from gumbel dist.
-            adding two dist. to have [a_1 + z_1, ..., a_k + z_k]
-            taking the i = argmax([a_1 + z_1, ..., a_k + z_k]) to be the sampled category. (one-hot at the max category)
-        (proof https://i.hsfzxjy.site/2019-08-01-proof-of-gumbel-max-trick, https://arxiv.org/pdf/1611.01144.pdf)
-
-    =>  approximate argmax (one-hot at max) with soft-max, to allow gradient into all location of the predicted dist.
-        use a hyper-params r, the temperature to control how well the soft-max approximates the argmax 
-        i.e. soft-max over [(a_1 + z_1)/r, ..., (a_k + z_k)/r]
-            r -> 0 to be sharp (yet increasing gradient variance thus harder training)
-            r -> inf to be flat (yet inaccurate, as like uniform)
-    """
-    shape = tf.shape(logits)
-
-    # sample Gumbel(0, 1) - inverse transform sampling
-    U = tf.random_uniform(shape, minval=0, maxval=1)
-    z = -tf.log(-tf.log(U + _eps) + _eps)
-    # adding
-    logits += z
-    # softmax with temperature
-    y = tf.nn.softmax(logits / temperature, axis=-1)
-    if hard:
-        y_hard = tf.cast(tf.one_hot(tf.argmax(y, axis=-1), shape[-1]), y.dtype)  # shape[-1] as the category num k
-        # y_hard = tf.cast(tf.equal(y, tf.reduce_max(y, axis=-1, keep_dims=True)), y.dtype)  # potential multiple 1 when a tie occurs?
-        y = tf.stop_gradient(y_hard - y) + y
-    return y
-
-
 def _variable_on_cpu(name, shape, initializer, use_fp16=False):
     """Helper to create a Variable stored on CPU memory.
 
@@ -455,30 +414,6 @@ def tf_gather(supports, neighbor_idx, shadow_fn=tf.zeros, get_mask=True):
     rtn = (neighbors, mask) if get_mask else neighbors
     return rtn
 
-def tf_cond(pred, true_fn=None, false_fn=None, name=None):
-    from tensorflow.python.framework import smart_cond as smart_module
-
-    """Return either `true_fn()` if predicate `pred` is true else `false_fn()`.
-
-    If `pred` is a bool or has a constant value, we return either `true_fn()`
-    or `false_fn()`, otherwise we use `tf.cond` to dynamically route to both.
-
-    Arguments:
-        pred: A scalar determining whether to return the result of `true_fn` or `false_fn`.
-        true_fn: The callable to be performed if pred is true.
-        false_fn: The callable to be performed if pred is false.
-        name: Optional name prefix when using `tf.cond`.
-
-    Returns:
-        Tensors returned by the call to either `true_fn` or `false_fn`.
-
-    Raises:
-        TypeError: If `true_fn` or `false_fn` is not callable.
-    """
-    if isinstance(pred, tf.Variable):
-        return tf.cond(pred, true_fn=true_fn, false_fn=false_fn, name=name)
-    return smart_module.smart_cond(pred, true_fn=true_fn, false_fn=false_fn, name=name)
-
 def get_activation(activation):
     if isinstance(activation, str):
         if activation == 'relu':
@@ -618,9 +553,6 @@ def normalize(x, norm_cfg, axis=None, mask=None):
             unit = x * mask if mask is not None else x
             unit = tf.reduce_sum(tf.abs(unit), axis=axis, keepdims=True) + _eps
             x = x / unit
-        elif n == 'G_softmax':  # global - softmax over points
-            # PCT: point cloud transformer - regularizing attention at each neighbor location?)
-            x = masked_softmax(x, mask, axis=axis) if mask is not None else tf.nn.softmax(x, axis=axis)
         else:
             raise NotImplementedError(f'not supported norm: {n} in {norm_cfg}')
 
@@ -629,63 +561,7 @@ def normalize(x, norm_cfg, axis=None, mask=None):
     return x
 normalize.spatial = ['softmax', 'norm', 'norml1']
 normalize.channel = ['l2', 'l1']
-normalize.others = ['G_softmax']
-normalize.ops = normalize.spatial + normalize.channel + normalize.others
-
-@tf_scope
-def apply_kernel(target, kernel, shared_channel=1, reduction='sum', mask=None):
-    """
-    apply kernel on target: [BxN, k, d_agg] - e.g. perform convolution / weighted aggregation
-    """
-    # if name:
-    #     with tf.variable_scope(name):
-    #         return convolute(target, kernel, shared_channel, mask, None)
-    mh = shared_channel
-    d_k = (target.shape[-1]) // mh
-    mask = check_mask(target, mask)  # [BxN, k, 1]
-
-    # reduction as merged normalization (spatial) + sum
-    if reduction in normalize.spatial:
-        assert kernel is not None
-        kernel = normalize(kernel, reduction, mask=mask)
-        reduction = 'sum'
-
-    if kernel is None:  # assume kernel applied
-        f_out = target
-    elif mh > 1:
-        assert int(kernel.shape[-1]) == d_k, f'incompatible kernel.shape = {kernel.shape}, but desired d_k = {d_k}'
-        target_mh = tf.reshape(target, [-1, tf.shape(target)[-2], d_k, mh])  # [BxN, k,  d_agg // mh, mh]
-        kernel_mh = tf.reshape(kernel, [-1, tf.shape(kernel)[-2], d_k, 1])  # [BxN, k/1, d_agg // mh, 1]
-        # kernel_mh = tf.expand_dims(kernel, axis=-1)
-        f_out = tf.reshape(target_mh * kernel_mh, tf.shape(target))  # [BxN, k, d_agg]
-    else:
-        f_out = target * kernel
-
-    # mask out jitter
-    if mask is not None and kernel is not None:
-        f_out *= mask
-    # reduction
-    f_out = apply_reduction(f_out, reduction, mask)
-
-    return f_out
-
-def apply_reduction(target, reduction, mask):
-    """ apply reduction on target
-    """
-    mask = check_mask(target, mask)  # [BxN, k, 1]
-    if mask is not None:
-        # reduce
-        reduce_func = {'sum': tf.reduce_sum, 'mean': tf.reduce_sum, 'max': tf.reduce_max}[reduction]
-        f_out = reduce_func(target, axis=-2)  # [BxN, d_agg]
-
-        if reduction == 'mean':  # divide by only valid neighbors
-            f_out /= tf.maximum(tf.reduce_sum(mask, axis=-2), _eps)
-            # f_out /= (tf.reduce_sum(mask, axis=-2) + _eps)
-    else:
-        # directly reduce
-        f_out = getattr(tf, f'reduce_{reduction}')(target, axis=-2)
-
-    return f_out
+normalize.ops = normalize.spatial + normalize.channel
 
 def combine(feature_list, ops, mask_list=None, kwargs=None, raise_not_support=True):
     # combine the features (assume has been matched) in the list
@@ -734,80 +610,6 @@ def combine(feature_list, ops, mask_list=None, kwargs=None, raise_not_support=Tr
     elif ops.startswith('max'):
         f_list = scatter_feature_list(feature_list, mask_list)
         features = tf.reduce_max(tf.stack(f_list), axis=0)
-    
-    elif ops.startswith('weight'):
-        shape = [num_f, feature_list[0].shape[-1]] if ops.startswith('weights') else [num_f,]
-        init = tf.constant(np.ones(shape) * np.log(1 / (shape[0] - 1)), dtype=tf.float32)  # init to mean-pooling (after sigmoid)
-        weights = tf_get_variable('weights', shape=None, initializer=init, wd=None)
-        weights = tf.reshape(weights, shape[:1] + [1] * (rank - len(shape[1:])) + shape[1:])  # [num_f, 1..., d/1]
-        if ops.endswith('Norm'):
-            weights = weights / tf.reduce_sum(weights, axis=-2, keepdims=True)
-        elif ops.endswith('Softmax'):
-            weights = tf.nn.softmax(weights, axis=-2)
-        else:  # by default
-            weights = tf.nn.sigmoid(weights)  # maps into [0-1]
-
-        if mask_list is None:
-            features = tf.concat([tf.expand_dims(f, axis=0) for f in feature_list], axis=0)  # [num_f, ...]
-            features = tf.reduce_sum(features * weights, axis=0)
-        else:
-            f_list = scatter_feature_list(feature_list, mask_list, weights)
-            features = tf.add_n(f_list)
-
-    elif ops.startswith('w'):
-        # unbound weights (no activation)
-        if num_f > 2:
-            shape = [num_f, feature_list[0].shape[-1]] if ops.startswith('ws') else [num_f,]
-        else:
-            shape = [features.shape[-1]] if ops.startswith('ws') else []
-        init = ops[2:] if ops.startswith('ws') else ops[1:]
-        init = tf.constant(np.ones(shape) * (float(init) if init else 1/num_f), dtype=tf.float32)  # init to mean-pooling, or specified val
-        w = tf_get_variable('w', shape=None, initializer=init, wd=None)
-        if shape:  # if not scalar
-            w = tf.reshape(w, shape[:1] + [1] * (rank - len(shape[1:])) + shape[1:] if num_f > 2 else [1] * (rank - 1) + shape)
-        if mask_list is None:
-            features = tf.concat([tf.expand_dims(f, axis=0) for f in feature_list], axis=0)  # [num_f, ...]
-            features = tf.reduce_sum(features * w, axis=0)
-        else:
-            f_list = scatter_feature_list(feature_list, mask_list, w=w if num_f > 2 else [w, 1-w])
-            features = tf.add_n(f_list)
-
-    elif ops.startswith('gate') and 'Sep' in ops:
-        assert mask_list is None
-        d_out = feature_list[0].shape[0] if ops.startswith('gates') else 1
-        d_weights = d_out 
-        w_list = [dense_layer(f, d_weights, f'gate_linear_{i}', None, True, False, **kwargs) for i, f in enumerate(feature_list)]
-
-        if len(ops.split('Sep')) > 1:  # gate[s]Sep.*
-            features = tf.concat([tf.expand_dims(f, axis=-2) for f in feature_list], axis=-2)  # [BxN, num_f, d]
-            weights = tf.concat([tf.expand_dims(w, axis=-2) for w in w_list], axis=-2)  # [BxN, num_f, d/1]
-            weights = normalize(weights, ops.split('Sep')[-1]) if ops.split('Sep')[-1] else weights
-            features = tf.reduce_sum(features * weights, axis=-2)
-        else:
-            features = tf.add_n(f*w for f, w in zip(w_list, feature_list))
-
-    elif ops.startswith('gate'):
-        assert mask_list is None
-        d_in = int(feature_list[0].shape[-1])  # d = d_in
-        shape = tf.shape(feature_list[0])  # [..., d]
-        d_out = int(shape[-1]) if ops.startswith('gates') else 1  # sigmoid - d/1 - if modulating feature dim, or one weight each feature vec)
-        d_out = d_out if num_f == 2 else d_out * num_f  # norm (e.g. softmax) - 1/num_f * d/1 - if need to normalize (num_f > 2), or using (s, 1-s)
-        features = tf.concat(feature_list, axis=-1)  # [BxN, num_f x d]
-        weights = dense_layer(features, d_out, 'gate_linear', None, True, False, **kwargs)
-        if num_f == 2:  # sigmoid
-            weights = tf.nn.sigmoid(weights)  # [..., d/1]
-            features = feature_list[0] * weights + feature_list[1] * (1 - weights)
-        else:  # norm - norm or softmax
-            shape_w = tf.concat([shape[:-1], [num_f, int(d_out / num_f)]], axis=0)  # [..., num_f, d/1]
-            shape_f = tf.concat([shape[:-1], [num_f, d_in]], axis=0) if int(d_out / num_f) != d_in else shape_w   # [..., num_f, d]
-            assert int(d_out / num_f) in [1, d_in], f'wrong calc on shape_w = [..., {num_f}, {int(d_out / num_f)}], but feature = {feature_list[0]}'
-            weights = tf.reshape(weights, shape_w)
-            weights = normalize(weights, ops.split('-')[-1]) if '-' in ops else tf.nn.softmax(weights, axis=-2)
-            features = tf.reshape(features, shape_f)
-            print(features, weights, features * weights)
-            features = tf.reduce_sum(features * weights, axis=-2)
-        if 'mlp' in ops.split('-')[-1]:
-            features = dense_layer(features, int(shape[-1]), 'gate_mlp', activation, True, True, **kwargs)
 
     elif raise_not_support:
         raise NotImplementedError(f'not supported ops = {ops}')
