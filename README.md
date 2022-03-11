@@ -2,7 +2,7 @@
 By Liyao Tang, Yibing Zhan, Zhe Chen, Baosheng Yu, and Dacheng Tao
 
 This is the implementation of our CVPR 2022 paper: <br>
-**Contrastive Boundary Learning for Point Cloud Segmentation** [[arXiv]()]
+**Contrastive Boundary Learning for Point Cloud Segmentation** [[arXiv](https://arxiv.org/abs/2203.05272)]
 
 ![cbl](./imgs/cbl-full.png)
 
