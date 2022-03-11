@@ -86,8 +86,8 @@ class Config(Base):
     snap_dir = 'snapshots'
     snap_prefix = 'snap'
     # summary_dir = ''  # use saving_path - assume single train per saving_path
-    max_to_keep = 10
-    mode = 'train-val'  # -test
+    max_to_keep = 100
+    mode = 'train'
 
     rand_seed = 0
     distribute = 'tf_device'

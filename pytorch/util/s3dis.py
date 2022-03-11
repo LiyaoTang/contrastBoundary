@@ -71,34 +71,10 @@ class S3DIS(Dataset):
         data_name = ['points', 'features', 'point_labels', 'xyz', 'cloud_inds']
         collate = self.collate_default
 
-        gen_cfg = config.data_gen if 'data_gen' in config else ''
-
-        if gen_cfg == 'block':
-            data_gen = self.data_gen_block
-            data_name = ['points', 'features', 'point_labels', 'xyz', 'cloud_inds']
-        elif gen_cfg == 'mixblock':
-            data_gen = self.data_gen_block
-            data_name = ['points', 'features', 'point_labels', 'xyz', 'cloud_inds']
-            collate = self.collate_mixblock
-            self.use_block = []  # a list of pending block-batch
-        else:
-            pass
-
         self.data_gen = data_gen
         self.data_name = data_name
         self.collate_fn = collate
         return
-
-    def data_gen_block(self, idx):
-        """ random choose a cloud & slice to block with overlap
-        """
-        data_idx = self.data_idx[idx % len(self.data_idx)]
-        data = SA.attach("shm://{}".format(self.data_list[data_idx])).copy()
-        coord, feat, label = data[:, 0:3], data[:, 3:6], data[:, 6]
-        rst = data_prepare_block(coord, feat, label, self.split, self.voxel_size, self.voxel_max, self.transform, self.shuffle_index, sample_max=self.config.batch_size)
-        rst = [*rst, [torch.IntTensor([data_idx]) for _ in range(len(rst[0]))]]  # add cloud_inds - [coord_list=[coord, ...], feat_list...]
-        rst = list(zip(*rst))  # [(coord, feat...), ...]
-        return rst
 
     def data_gen_random(self, idx):
         """ random choose a cloud & radius crop in the cloud
@@ -108,22 +84,6 @@ class S3DIS(Dataset):
         coord, feat, label = data[:, 0:3], data[:, 3:6], data[:, 6]
         coord, feat, label, xyz = data_prepare(coord, feat, label, self.split, self.voxel_size, self.voxel_max, self.transform, self.shuffle_index)
         return coord, feat, label, xyz, torch.IntTensor([data_idx])
-
-    def data_gen_mixblock(self, idx):
-        """ random choose to radius crop in the cloud
-        NOTE: not used - as data_gen collects sample, cannot determine at batch-wise
-        """
-        raise
-        if np.random.rand() < self.config.mixblock_ratio:
-            # use block
-            idx = idx % len(self.data_idx_block)
-            idx = self.data_idx_block[idx]  # idx of a large cloud
-            rst = self.data_gen_block(idx)
-            return rst
-        else:
-            # original (random)
-            rst = self.data_gen_random(idx)
-            return rst
 
     def __getitem__(self, idx):
         return self.data_gen(idx)
@@ -165,51 +125,6 @@ class S3DIS(Dataset):
 
         offset = torch.IntTensor(offset)
         batch_list = [torch.cat(v[:batch_i]) for v in batch_list]
-        if return_type == 'dict':
-            return dict(zip(self.data_name, batch_list), offset=offset)
-        return [*batch_list, offset]
-
-    def collate_mixblock(self, batch, return_type='dict'):
-        """ mixing block-samples and random-samples at batch-level
-        """
-        batch_list = []
-        self.use_block += [np.random.rand() < self.config.mixblock_ratio]
-        # info = [os.getpid(), [len(s) for s in batch], self.use_block.copy()]
-
-        if self.use_block[0]:
-            # try to use block (if any)
-            for sample in batch:
-                # sample should always be 'list' (of different length) - as using the data_gen_block
-                if isinstance(sample, list) and len(sample) > 1:
-                    batch_list = sample
-                    break
-
-        if batch_list or not self.use_block[0]:
-            # done only if successfully using block or not useing block
-            # - wait for next batch samples if using block but no block sampled
-            self.use_block.pop(0)
-
-        # print(*info, 'block?', bool(batch_list), '\t->', self.use_block, flush=True)
-
-        if not batch_list:  # not using block / or does not have block in current round of batch sampling
-            for sample in batch:
-                if isinstance(sample, list):
-                    batch_list.append(sample[0])  # use only 1st sample in block-sample
-                else:
-                    batch_list.append(sample)
-
-        batch_list = list(zip(*batch_list))  # [[xyz, ...], [feat, ...], ...]
-        # for n, v in zip(self.data_name, batch_list):
-        #     print('---', n, '\n', v, flush=True)
-
-        offset, count = [], 0
-        for batch_i, item in enumerate(batch_list[0]):
-            if count + item.shape[0] > self.batch_limits:
-                break
-            count += item.shape[0]
-            offset.append(count)
-        offset = torch.IntTensor(offset)
-        batch_list = [torch.cat(v[:batch_i+1]) for v in batch_list]
         if return_type == 'dict':
             return dict(zip(self.data_name, batch_list), offset=offset)
         return [*batch_list, offset]

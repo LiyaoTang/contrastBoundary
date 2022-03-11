@@ -1,20 +1,29 @@
 # Contrastive Boundary Learning for Point Cloud Segmentation (CVPR 2022)
 ![image info](./imgs/cbl-full.png)
 
-<!-- ```
-@inproceedings{???2022cbl,
-  title={Contrastive Boundary Learning for Point Cloud Segmentation},
-  author={Lu, Tao and Wang, Limin and Wu, Gangshan},
-  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
-  pages={11693--11702},
-  year={2021}
+This is the implementation of our CVPR 2022 paper: <br>
+**Contrastive Boundary Learning for Point Cloud Segmentation** [[arXiv]()]
+
+If you find our work useful in your research, please consider citing:
+
+```
+@misc{tang2022contrastive,
+    title={Contrastive Boundary Learning for Point Cloud Segmentation},
+    author={Liyao Tang and Yibing Zhan and Zhe Chen and Baosheng Yu and Dacheng Tao},
+    year={2022},
+    eprint={2203.05272},
+    archivePrefix={arXiv},
+    primaryClass={cs.CV}
 }
-``` -->
+```
 
 ## Setup
 For point-transformer baseline, please follow [pytorch/README](https://github.com/LiyaoTang/contrastBoundary/blob/master/pytorch/README.md).
 
 For ConvNet and other baselines, please follow [tensorflow/README](https://github.com/LiyaoTang/contrastBoundary/blob/master/tensorflow/README.md).
+
+## Pre-trained models
+Pretrained models can be accessed [here](https://drive.google.com/drive/folders/1_ppwnrAu6VRqENTPWPt-3KFqCCTtfsFC?usp=sharing). Choose the desired baseline and unzip into the corresponding code directory (tensorflow/pytorch) and follow the README their for testing instruction.
 
 ## Qualitative results
 ![image info](./imgs/cbl-compare.png)

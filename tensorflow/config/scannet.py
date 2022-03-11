@@ -1,5 +1,4 @@
 import re, itertools
-from . import archs
 from .base import Base, Config
 from .utils import gen_config, _xor, _is_property, _is_float
 from collections import defaultdict
@@ -34,7 +33,7 @@ class Default(Config):
     num_threads = 12  # thread to provide data
     print_freq = 60
     update_freq = 10
-    save_freq = 50
+    save_freq = 10
     val_freq = 10
     save_compact = True  # if saving only vars
     summary = False  # if using tf summary
@@ -130,40 +129,14 @@ class Conv(Default):
     @property
     def update_path(self): m = self._main if self._main else 'adapt'; return m
     @property
-    def _arch_dict(self):
-        # ... |I2_blk...|M2_blk...|U2_blk...|head... => [I/M/U][blk num] _ [actual block] | head
-        k_dict = defaultdict(lambda: 'out', {'I': 'in', 'M': 'mid', 'U': 'up'})
-        arch_dict = defaultdict(lambda: [])
-        for ops in self._ops.split('|')[1:]:
-            if not ops or ops.startswith('lr'): continue
-            k = k_dict[ops[0]]
-            arch_dict[k] += ['_'.join(ops.split('_')[1:])] * (int(ops[1]) if ops[1] != '_' else 1) if k != 'out' else [ops]
-        return arch_dict
-    @property
-    def arch_in(self): return self._arch_dict['in']
-    @property
-    def arch_mid(self): return self._arch_dict['mid']
-    @property
-    def arch_up(self): return self._arch_dict['up']
-    @property
     def arch_out(self):  # head
-        out = self._arch_dict['out']
-        if not out or all(h.split('-')[0] in ['edge', 'boundsep', 'rgb', 'contrast'] for h in out):
+        out = self._ops.split('|')[1:]
+        if not out or not any(h.split('-')[0] in ['mlp', 'multi'] for h in out):
             # add main-head if not present
-            loss_w = re.search('\.\d+', self._ops.split('|')[0].split('-')[0])
-            loss_w = f'-w{loss_w.group()}' if loss_w else ''
-            out = [f'mlp-1-xen{loss_w}'] + out
+            out = ['mlp-1-xen'] + out
         return out
     @property
-    def in_features(self):
-        main = self._ops.split('|')[0]
-        if '-' not in main:
-            return default.in_features
-        return main.split('-')[1]
-    @property
-    def learning_rate(self): lr = self._ops.split('|')[-1]; return float(lr[2:]) if lr.startswith('lr') else default.learning_rate
-    @property
-    def sep_head(self): return any(h.startswith(i) for i in ['refine', 'multi'] for h in self.arch_out)
+    def sep_head(self): return any(h.startswith(i) for i in ['multi'] for h in self.arch_out)
     @property
     def name(self):
         return '_'.join([self.idx_name_pre, *[i for i in self._ops.split('|') if i]])

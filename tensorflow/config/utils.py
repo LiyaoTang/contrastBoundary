@@ -328,6 +328,33 @@ def parse_stage(stage, num_layers):
     stage_list = sum(stage_list, [])
     return stage_list
 
+def _list_config(FLAGS):
+    import importlib
+
+    cfg = FLAGS.list.replace('/', '.').split('.')
+    cfg = [i for i in cfg if i != 'config']
+    if os.path.isfile(FLAGS.list):
+        cfg = load_config(FLAGS.list)
+        mod = importlib.import_module(f'config.{cfg.dataset.lower()}')
+        cfg_list = [(cfg, cfg.name)]
+    elif len(cfg) == 1:  # all config in the dataset_name
+        mod = importlib.import_module(f'config.{cfg[0]}')
+        cfg_list = [(getattr(mod, k), k) for k in dir(mod) if not k.startswith('_')]
+        cfg_list = [(c, k) for c, k in cfg_list if is_config(c, mod=mod)]
+    else:  # config.dataset.dict_name/cfg_name/idx_name
+        mod = importlib.import_module(f'config.{cfg[0]}')
+        try:
+            d = load_config(FLAGS.list)
+        except:  # may specify a dict
+            if hasattr(mod, cfg[-1]):
+                d = getattr(mod, cfg[-1])
+            else:
+                raise ValueError(f'no cfg - {FLAGS.list}')
+        cfg_list = zip(d.values(), d.keys()) if isinstance(d, dict) else [(d, d.name)]
+
+    for c, n in cfg_list:
+        log_config(c, n, base=mod.Base)  # config.Base is mod.Base
+
 
 def _str2bool(v, raise_not_support=True):
     if isinstance(v, bool):

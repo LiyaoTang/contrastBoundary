@@ -353,13 +353,8 @@ def get_initializer(k):
     if not isinstance(k, str) and k is not None : return k  # assume to be an initialization already
     elif k in [None, 'xavier', 'glorot']: return tf.initializers.glorot_uniform()  # scale = 1.0, fan_avg (uniform is used in paper)
     elif k == 'glorotN': return tf.initializers.glorot_normal()  # scale = 1.0, fan_avg
-    elif k.startswith('normalf'):  # normal full - usually for dense - seems better
-        stddev = k[len('normalf'):]; stddev = float(stddev) if stddev else 1e-2; return tf.initializers.random_normal(stddev=stddev)
-    elif k.startswith('normal'):  # calling tf.random.truncated_normal, trunc to [-2, 2]
-        stddev = k[len('normal'):]; stddev = float(stddev) if stddev else 1e-2; return tf.initializers.truncated_normal(stddev=stddev)
     elif k == 'fanin': return tf.initializers.variance_scaling(scale=1.0)  # fan_in, tunc normal - default variance_scaling - usually for conv
     elif k in ['msra', 'he']: return tf.initializers.variance_scaling(scale=2.0)  # fan_in, tunc normal - he normal (as used in paper)
-    elif k == 'heout': return tf.initializers.variance_scaling(scale=2.0, mode='fan_out')  # fan_out, tunc normal
     elif k == 'zeros': return tf.initializers.zeros()
     elif k == 'ones': return tf.initializers.ones()
     else:
@@ -590,14 +585,9 @@ def combine(feature_list, ops, mask_list=None, kwargs=None, raise_not_support=Tr
             f_list = [f*w for w, f in zip(w_list, f_list)]
         return f_list
 
-    if ops.startswith('concat'):
-        assert ops in ['concat', 'concatmlp', 'concatlinear']
+    if ops == 'concat':
         f_list = scatter_feature_list(feature_list, mask_list)
         features = tf.concat(f_list, axis=-1)
-        if ops == 'concatmlp':
-            features = dense_layer(features, int(f_list[0].shape[-1]), 'concat_mlp', activation, True, True, **kwargs)
-        elif ops == 'concatlinear':
-            features = dense_layer(features, int(f_list[0].shape[-1]), 'concat_mlp', None, False, False, **kwargs)
 
     elif ops == 'sum':
         f_list = scatter_feature_list(feature_list, mask_list)

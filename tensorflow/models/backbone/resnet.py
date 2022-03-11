@@ -8,7 +8,6 @@ ROOT_DIR = os.path.join(BASE_DIR, '..')
 sys.path.insert(0, ROOT_DIR)
 
 from ..local_aggregation_operators import *
-from ..blocks import plain_net
 
 
 def reduce_aggregation(reduction):
@@ -347,8 +346,6 @@ def resnet_backbone(config,
                               weight_decay=weight_decay, activation_fn=activation_fn, bn=bn, bn_momentum=bn_momentum,
                               bn_eps=bn_eps)
 
-        if config.arch_in:
-            features = plain_net(features, fdim, config.arch_in, inputs, '', 0, config, config, is_training)
 
         features = simple_block(layer_idx, config, inputs, features, 'res1_simple_block',
                                 radius=radius, out_fdim=fdim, is_training=is_training,
@@ -441,8 +438,6 @@ def resnet_backbone(config,
                                         init=init, weight_decay=weight_decay, activation_fn=activation_fn, bn=bn,
                                         bn_momentum=bn_momentum,
                                         bn_eps=bn_eps)
-        if config.arch_mid:
-            features = plain_net(features, features.shape[-1], config.arch_mid, inputs, '', config.num_layers - 1, config, config, is_training)
 
         F += [features]
 

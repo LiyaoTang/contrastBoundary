@@ -86,9 +86,6 @@ def resnet_scene_segmentation_head(config,
         features = conv1d_1x1(features, fdim, 'up_conv3', is_training=is_training, with_bias=False, init=init,
                               weight_decay=weight_decay, activation_fn=activation_fn, bn=bn, bn_momentum=bn_momentum,
                               bn_eps=bn_eps)
-        if config.arch_up:
-            from ..blocks import plain_net
-            features = plain_net(features, fdim, config.arch_up, inputs, '', 0, config, config, is_training)
 
         F_up.append(features)
         F_up = list(reversed(F_up))

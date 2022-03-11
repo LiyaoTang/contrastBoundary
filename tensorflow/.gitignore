@@ -20,3 +20,4 @@ Data
 # heavy stuff
 results/
 **/events.out.tfevents*
+*.zip

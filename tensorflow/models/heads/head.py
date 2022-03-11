@@ -4,9 +4,9 @@ if tf.__version__.split('.')[0] == '2':
     tf.disable_v2_behavior()
 
 import re
-from .utils import *
-from .basic_operators import *
-from .basic_operators import _eps, _inf
+from ..utils import *
+from ..basic_operators import *
+from ..basic_operators import _eps, _inf
 fetch_supports = fetch_supports_stage
 
 # ---------------------------------------------------------------------------- #
@@ -643,10 +643,10 @@ class contrast_head(object):
         pos_mask = neg_mask = pos_point = neg_point = None
 
         pos_mask = tf.logical_and(sample_mask, valid_mask) if valid_mask is not None else sample_mask  # [BxN, k] - valid eq in samples/neighbors
-        pos_point = tf.reduce_any(pos_point, axis=-1, keepdims=True)  # [BxN, 1]
+        pos_point = tf.reduce_any(pos_mask, axis=-1, keepdims=True)  # [BxN, 1]
 
         neg_mask = tf.logical_and(tf.logical_not(sample_mask), valid_mask) if valid_mask is not None else tf.logical_not(sample_mask)  # valid neq
-        neg_point = tf.reduce_any(neg_point, axis=-1, keepdims=True)
+        neg_point = tf.reduce_any(neg_mask, axis=-1, keepdims=True)
 
         point_mask = [m for m in [pos_point, neg_point] if m is not None]
         if len(point_mask) == 1:
@@ -669,19 +669,12 @@ class contrast_head(object):
         pos_mask, neg_mask, point_mask = contrast_head.solve_samples_mask(contrast, sample_mask, valid_mask, config)
 
         def false_fn():
-            if contrast in ['sim', 'diff', 'simdiff', 'simplain'] or len(head_cfg.dist.split('-')) == 1:
-                # if sim/diff or not using reduce - dist = [BxN, k]
-                mask = neg_mask if contrast in ['diff'] else pos_mask
-                dist = tf.zeros(tf.shape(tf.boolean_mask(mask, point_mask)))
-            else:
-                # else, i.e. triplet/softnn and using reduce - dist = [pos=[BxN], neg]
-                shape = tf.shape(point_mask)
-                dist = [tf.zeros(shape=shape), tf.zeros(shape=shape)]
+            mask = neg_mask if contrast in ['diff'] else pos_mask
+            dist = tf.zeros(tf.shape(tf.boolean_mask(mask, point_mask)))
             return dist, 0.0
 
         def true_fn():
             d, l = contrast_head.calc_loss_from_sample(features, sample_idx, pos_mask, neg_mask, point_mask, contrast, inputs, (stage_n, stage_i), head_cfg, config)
-            l = contrast_head.apply_weights(l, point_mask, inputs, stage_n, stage_i, head_cfg, config, name='weights')
             return d, l
 
         # NOTE: point_mask could be None => exclude unnecessary boolean_mask if all True
@@ -810,20 +803,8 @@ class contrast_head(object):
             else: raise NotImplementedError(f'not supported post-ops = {aug} in contrast_aug = {contrast_aug}')
 
         loss = dist  # [BxN]
+        loss = tf.reduce_mean(loss) * float(head_cfg.weight)
         return loss
-
-    @staticmethod
-    @tf_scope
-    def apply_weights(loss, point_mask, inputs, stage_n, stage_i, head_cfg, config):
-        # assume loss - [BxN]
-        weight = head_cfg.weight
-        if isinstance(weight, str):
-            raise NotImplementedError
-        else:
-            wfloat = weight
-        loss = tf.reduce_mean(loss) * wfloat
-        return loss
-
 
 def get_head_ops(head_n, raise_not_found=True):
 

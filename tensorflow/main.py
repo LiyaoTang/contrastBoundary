@@ -110,7 +110,7 @@ if cfg.gpu_num > 1:
 if 'test' in cfg.mode or 'val' in cfg.mode:
     # find chosen snap (and saving_path if not specified)
     log_config(cfg)
-    if cfg.model_path and 'train' not in cfg.mode:  # specified for val/test (not for continue training)
+    if cfg.model_path:  # specified for val/test
         chosen_snap = cfg.model_path
         cfg.saving_path = os.path.dirname(chosen_snap).split('snapshots')[0].rstrip('/')  # ensure at least is a dir
     elif cfg.saving_path:
@@ -145,12 +145,3 @@ if 'test' in cfg.mode or 'val' in cfg.mode:
                 tester.test_vote(g.sess, g.ops, g.dataset, g.model, num_votes=cfg.num_votes, test_path=test_path)
                 print(flush=True)
             print_mem('>>> finished test', check_time=True)
-
-# cleanup
-for child in mp.active_children():
-    child.terminate()
-
-parent = psutil.Process(os.getpid())
-children = parent.children(recursive=True)
-for child in children:
-    child.kill()

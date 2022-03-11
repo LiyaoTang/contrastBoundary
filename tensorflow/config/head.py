@@ -116,38 +116,7 @@ for k, v in main_dict.items():
     globals()[k] = v
 
 
-class contrast(Head):  # contrast/metric learning
-
-    stage = 'U0'
-    @property
-    def contrast(self): return self._ops.split('|')[0]  # how to use the distance - softnn
-    @property
-    def ftype(self):
-        return self._ops.split('|')[1]
-    @property
-    def project(self):
-        proj = self._ops.split('|')[1][len(self.ftype):]
-        return proj.strip('-')
-    @property
-    def sample(self):
-        s = self._ops.split('|')[2]
-        return s
-    @property
-    def dist(self): return self._ops.split('|')[3]  # distance - reduce features (if any) -> dist l1/l2/cos... -> reduce dist (if any)
-    @property
-    def _aug(self): return self._ops.split('|')[4].split('-')  # margin-mask-power
-    @property
-    def mask(self): return ''.join([i for i in self._aug if i.startswith('mask')])  # if selecting the dist
-    @property
-    def margin(self): return ''.join([i for i in self._aug if re.search('m(?!ask)', i)])[1:]  # margin (minimal distance) to consider for loss
-    @property
-    def contrast_aug(self): return '-'.join([i for i in self._aug if i[:1] in ['p']])  # shared aug - power
-    @property
-    def weight(self): return self._ops.split('|')[5][1:]
-    @property
-    def name(self): return '-'.join([self.head_n] + [i for i in self._ops.split('|') if i])
-
-class contrast_subcene(contrast):
+class contrast(Head):
     _attr_dict = {'_ops': [
         'softnn|latent|label|l2||w.1|Ua',
 
@@ -169,40 +138,40 @@ class contrast_subcene(contrast):
 
     ]}
     head_n = 'contrast'
-    idx_name_pre = 'contrast_subcene'
+    @property
+    def contrast(self): return self._ops.split('|')[0]  # how to use the distance - softnn
+    @property
+    def ftype(self):
+        return self._ops.split('|')[1]
+    @property
+    def project(self):
+        proj = self._ops.split('|')[1][len(self.ftype):]
+        return proj.strip('-')
+    @property
+    def sample(self):
+        s = self._ops.split('|')[2]
+        return s
+    @property
+    def dist(self): return self._ops.split('|')[3]  # distance
+    @property
+    def _aug(self): return self._ops.split('|')[4].split('-')  # margin-mask-power
+    @property
+    def mask(self): return ''.join([i for i in self._aug if i.startswith('mask')])  # if selecting the dist
+    @property
+    def margin(self): return ''.join([i for i in self._aug if re.search('m(?!ask)', i)])[1:]  # margin/temperature
+    @property
+    def contrast_aug(self): return '-'.join([i for i in self._aug if i[:1] in ['p']])  # shared aug - power
+    @property
+    def weight(self): return self._ops.split('|')[5][1:]
     @property
     def stage(self): return self._ops.split('|')[6]
     @property
     def name(self): return '-'.join([i for i in [self.head_n, self.stage] + self._ops.split('|')[:6] if i])
 
 contrast_dict = {}
-gen_config([contrast, contrast_subcene], contrast_dict)
+gen_config([contrast], contrast_dict)
 for k, v in contrast_dict.items():
     globals()[k] = v
-
-
-def get_head_cfg(head):
-    """
-    NOTE: block_cfg compatible API - not used in architecture building, but using 'load_config'
-        => get head cfg by name, instead of dynamically setting attr
-        => can have more self-defined group of attrs (e.g. sep = '|'), no need to worry about '-'/'_'
-
-    '{head_n}-{attr 1}_{attr 2}....': cfg class name - attrs, with multiple attr connected via '_'
-    """
-
-    head = head.split('-')
-    head_cls = head[0]
-    attr = '-'.join(head[1:])
-
-    head = globals()[head_cls]()
-    if attr:
-        head.parse(attr)
-    if head._assert:
-        head._assert()
-
-    head.name = head_cls
-    head.attr = attr
-    return head
 
 del k, v
 

@@ -1,5 +1,4 @@
 import re, itertools
-from . import archs
 from .base import Base, Config
 from .utils import gen_config, _xor, _is_property, _is_float
 from collections import defaultdict
@@ -42,7 +41,7 @@ class Default(Config):
     num_threads = 12  # thread to provide data
     print_freq = 60
     update_freq = 10
-    save_freq = 50
+    save_freq = 10
     val_freq = 10
     save_val = ''  # if saving val results (by keys)
     save_sample = False  # if saving sample stat
@@ -146,16 +145,20 @@ class Origin(Default):
         return '_'.join([self.idx_name_pre, *[i for i in self._ops.split('|') if i]])
 
 class Conv(Origin):
-    # try some high train score & low val score with relu (instead of leaky_relu)
     _attr_dict = {'_ops': [
+        # CBL
         '|multi-Ua-concat-latent|contrast-Ua-softnn-latent-label-l2-w.1',  # good
-        # temperature
+
+        # CBL - with different temperature
         '|multi-Ua-concat-latent|contrast-Ua-softnn-latent-label-l2-mT.3-w.1',
         '|multi-Ua-concat-latent|contrast-Ua-softnn-latent-label-l2-mT.5-w.1',
         '|multi-Ua-concat-latent|contrast-Ua-softnn-latent-label-l2-mT2-w.1',
         '|multi-Ua-concat-latent|contrast-Ua-softnn-latent-label-l2-mT3-w.1',
         '|multi-Ua-concat-latent|contrast-Ua-softnn-latent-label-l2-mT5-w.1',
-        # kl
+
+        # CBL - kl
+        # - thresholding on the KL-distance to determine the boundary points
+        # - as described in the appendix , in explaning the other choice than the simple `argmax`
         '|multi-Ua-concat-latent|contrast-Ua-softnn-latent-labelkl.5-l2-w.1',
         '|multi-Ua-concat-latent|contrast-Ua-softnn-latent-labelkl.5-l2-mT.5-w.1',
     ]}
@@ -174,16 +177,15 @@ class Conv(Origin):
         m = self._ops.split('|')[0][len(self._main):] if self._main == 'adapt' else '_' + self._ops.split('|')[0]
         return '_'.join([i for i in [(name_pre + m).strip('_')] + self._ops.split('|')[1:] if i])
 
-class pospool(Conv):
+class Pospool(Conv):
     _attr_dict = {'_ops': [
         # pospool
         'pospool|multi-Ua-concat-latent|contrast-Ua-softnn-latent-label-l2-w.1',
     ]}
     idx_name_pre = 'pospool'
-    _name_pre = Origin_relu.idx_name_pre
 
 origin_dict = {}
-gen_config([Conv, pospool], store_dict=origin_dict)
+gen_config([Conv, Pospool], store_dict=origin_dict)
 for k, v in origin_dict.items():
     if v.update_path:
         v.update(v.update_path)
