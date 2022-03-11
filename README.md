@@ -4,7 +4,7 @@ By Liyao Tang, Yibing Zhan, Zhe Chen, Baosheng Yu, and Dacheng Tao
 This is the implementation of our CVPR 2022 paper: <br>
 **Contrastive Boundary Learning for Point Cloud Segmentation** [[arXiv]()]
 
-![image info](./imgs/cbl-full.png)
+![cbl](./imgs/cbl-full.png)
 
 If you find our work useful in your research, please consider citing:
 
@@ -27,7 +27,7 @@ For ConvNet and other baselines, please follow [tensorflow/README](https://githu
 ## Pre-trained models
 Pretrained models can be accessed [here](https://drive.google.com/drive/folders/1_ppwnrAu6VRqENTPWPt-3KFqCCTtfsFC?usp=sharing), together with training and testing log. Choose the desired baseline and unzip into the corresponding code directory ([tensorflow](https://github.com/LiyaoTang/contrastBoundary/tree/master/tensorflow)/[pytorch](https://github.com/LiyaoTang/contrastBoundary/tree/master/pytorch)) and follow the README there for further instruction.
 
-## Qualitative results
+## Quantitative results
 
 
 S3DIS (Area 5)
@@ -39,7 +39,7 @@ S3DIS (Area 5)
 
 
 ## Qualitative results
-![image info](./imgs/cbl-compare.png)
+![demo](./imgs/cbl-compare.png)
 
 ## Acknowledgement
 Codes are built based on a series of previous works, including: <br>
