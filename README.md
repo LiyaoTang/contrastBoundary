@@ -1,8 +1,10 @@
 # Contrastive Boundary Learning for Point Cloud Segmentation (CVPR 2022)
-![image info](./imgs/cbl-full.png)
+By Liyao Tang, Yibing Zhan, Zhe Chen, Baosheng Yu, and Dacheng Tao
 
 This is the implementation of our CVPR 2022 paper: <br>
 **Contrastive Boundary Learning for Point Cloud Segmentation** [[arXiv]()]
+
+![image info](./imgs/cbl-full.png)
 
 If you find our work useful in your research, please consider citing:
 
@@ -17,13 +19,24 @@ If you find our work useful in your research, please consider citing:
 }
 ```
 
-## Setup
-For point-transformer baseline, please follow [pytorch/README](https://github.com/LiyaoTang/contrastBoundary/blob/master/pytorch/README.md).
+## Setup & Usage
+For point-transformer baseline, please follow [pytorch/README](https://github.com/LiyaoTang/contrastBoundary/tree/master/pytorch).
 
-For ConvNet and other baselines, please follow [tensorflow/README](https://github.com/LiyaoTang/contrastBoundary/blob/master/tensorflow/README.md).
+For ConvNet and other baselines, please follow [tensorflow/README](https://github.com/LiyaoTang/contrastBoundary/tree/master/tensorflow).
 
 ## Pre-trained models
-Pretrained models can be accessed [here](https://drive.google.com/drive/folders/1_ppwnrAu6VRqENTPWPt-3KFqCCTtfsFC?usp=sharing). Choose the desired baseline and unzip into the corresponding code directory (tensorflow/pytorch) and follow the README their for testing instruction.
+Pretrained models can be accessed [here](https://drive.google.com/drive/folders/1_ppwnrAu6VRqENTPWPt-3KFqCCTtfsFC?usp=sharing), together with training and testing log. Choose the desired baseline and unzip into the corresponding code directory ([tensorflow](https://github.com/LiyaoTang/contrastBoundary/tree/master/tensorflow)/[pytorch](https://github.com/LiyaoTang/contrastBoundary/tree/master/pytorch)) and follow the README there for further instruction.
+
+## Qualitative results
+
+
+S3DIS (Area 5)
+| baseline                | mIoU |  OA  | mACC |
+|-------------------------|:----:|:----:|:----:|
+| ConvNet + CBL           | 69.4 | 90.6 | 75.2 |
+| ConvNet + CBL (kl)      | 69.5 | 90.9 | 75.3 |
+| point-transformer + CBL | 71.6 | 91.2 | 77.9 |
+
 
 ## Qualitative results
 ![image info](./imgs/cbl-compare.png)

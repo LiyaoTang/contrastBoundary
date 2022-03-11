@@ -49,11 +49,14 @@ Simply run the following script to start the training:
 
         python main.py -c config.[dataset].[model_name] --mode train
 
-The config is provided under `config/`, one config file for each dataset. Check the config file as well as the `main.py` for more options to play around.
+The config is provided under `config/`, one config file for each dataset. <br>
+For more options, please check the `main.py` as well as the config file to play around.
 
 For example, to train on S3DIS dataset with ConvNet baseline, run the following command:
 
         python main.py -c config.s3dis.conv_0
+
+Note that, by default, the log will be saved under the path `results/s3dis/[model_full_name]/Log_[date]-[time]`.
 
 
 ## Testing
@@ -68,7 +71,7 @@ For example, to test on S3DIS dataset with the [pretrained model](https://drive.
 For more specific usage, please consult the `main.py`.
 
 
-## Boundary Evaluation Protocal
+## Boundary-IoU Evaluation Protocal
 We provide the boundary evaluation protocal that takes h5 file, which needs to use python terminal, for example:
 
         >>> from utils.tester import ModelTester
