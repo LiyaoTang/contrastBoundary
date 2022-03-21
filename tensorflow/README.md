@@ -8,15 +8,13 @@ This code has been tested with Python 3.7, Tensorflow 1.14, CUDA 10.0 and cuDNN 
         git clone https://github.com/LiyaoTang/contrastBoundary
         cd contrastBoundary
 
-- Setup python environment.
+- Setup python environment and install dependencies.
 
         conda create -n cbl python=3.7
         source activate cbl
-
-- Follow [Tensorflow installation procedure](https://www.tensorflow.org/install), then install other dependencies.
-
         pip install -r py_requirements.txt
 
+- Follow [Tensorflow installation procedure](https://www.tensorflow.org/install).
 
 - Compile the customized tf ops.
 
@@ -27,13 +25,13 @@ You should now be able to run the contrastive boundary learning with different b
 ## Dataset Preparation
 
 ### S3DIS
-S3DIS dataset can be found [here](https://goo.gl/forms/4SoGp4KtH1jfRqEj2). Download the files named "Stanford3dDataset_v1.2.zip". Uncompress the folder and move it to `/Data/s3dis/Stanford3dDataset_v1.2`.
+S3DIS dataset can be found [here](https://goo.gl/forms/4SoGp4KtH1jfRqEj2). Download the files named "Stanford3dDataset_v1.2.zip". Uncompress the folder and move it to be under `Data/S3DIS`.
 
 ### ScanNet
 
-ScanNet dataset can be downloaded following the instruction [here](http://kaldir.vc.in.tum.de/scannet_benchmark/documentation) in using its download script. <br>
-We need to download four types of files: `_vh_clean_2.ply`, `_vh_clean_2.0.010000.segs.json` and the `.aggregation.json`. We also need its meta-data `scannetv2-labels.combined.tsv`. <br>
-Then, move the folder to be under `Data/scannet`.
+ScanNet dataset can be downloaded following the instruction [here](http://kaldir.vc.in.tum.de/scannet_benchmark/documentation) in requesting and using its download script. <br>
+We need to download four types of files: `.txt`, `_vh_clean_2.ply`, `_vh_clean_2.0.010000.segs.json` and the `.aggregation.json`. We also need its label map file `scannetv2-labels.combined.tsv` (via script download) and [scannetv2_val.txt](https://github.com/ScanNet/ScanNet/tree/master/Tasks/Benchmark). <br>
+Then, move all files/directories to be under `Data/ScanNet`.
 
 ### Semantic3D
 
