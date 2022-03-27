@@ -9,13 +9,12 @@ This is the implementation of our CVPR 2022 paper: <br>
 If you find our work useful in your research, please consider citing:
 
 ```
-@misc{tang2022contrastive,
-    title={Contrastive Boundary Learning for Point Cloud Segmentation},
-    author={Liyao Tang and Yibing Zhan and Zhe Chen and Baosheng Yu and Dacheng Tao},
-    year={2022},
-    eprint={2203.05272},
-    archivePrefix={arXiv},
-    primaryClass={cs.CV}
+@article{Tang2022ContrastiveBL,
+  title={Contrastive Boundary Learning for Point Cloud Segmentation},
+  author={Liyao Tang and Yibing Zhan and Zhe Chen and Baosheng Yu and Dacheng Tao},
+  journal={ArXiv},
+  year={2022},
+  volume={abs/2203.05272}
 }
 ```
 
