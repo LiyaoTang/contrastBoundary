@@ -5,8 +5,6 @@ import SharedArray as SA
 import torch
 
 from util.voxelize import voxelize
-from model.basic_operators import get_overlap
-
 
 def sa_create(name, var):
     x = SA.create(name, var.shape, dtype=var.dtype)
