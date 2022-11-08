@@ -10,12 +10,14 @@ If you find our work useful in your research, please consider citing:
 
 ```
 @InProceedings{tang2022cbl,
-    author    = {Tang, Liyao and Zhan, Yibing and Chen, Zhe and Yu, Baosheng and Tao, Dacheng},
-    title     = {Contrastive Boundary Learning for Point Cloud Segmentation},
-    booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
-    month     = {June},
-    year      = {2022},
-    pages     = {8489-8499}
+  author={Tang, Liyao and Zhan, Yibing and Chen, Zhe and Yu, Baosheng and Tao, Dacheng},
+  booktitle={2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, 
+  title={Contrastive Boundary Learning for Point Cloud Segmentation}, 
+  year={2022},
+  volume={},
+  number={},
+  pages={8479-8489},
+  doi={10.1109/CVPR52688.2022.00830}
 }
 ```
 
